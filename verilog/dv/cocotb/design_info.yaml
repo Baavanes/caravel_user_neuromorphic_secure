@@ -1,0 +1,9 @@
+CARAVEL_ROOT: /home/vboxuser/caravel_user_neuromorphic_comp/caravel
+MCW_ROOT: /home/vboxuser/caravel_user_neuromorphic_comp/mgmt_core_wrapper
+PDK: sky130A
+PDK_ROOT: /home/vboxuser/caravel_user_neuromorphic_comp/dependencies/pdks
+USER_PROJECT_ROOT: /home/vboxuser/caravel_user_neuromorphic_comp
+caravan: false
+clk: 25
+emailto:
+- null
