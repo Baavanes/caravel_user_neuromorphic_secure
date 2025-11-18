@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# Written by: Claude (Anthropic AI Assistant)
+#
+# Matrix Multiplier Identity Matrix Test Configuration
+
+Tests:
+    - {name: secure_test2_asserts, sim: RTL}

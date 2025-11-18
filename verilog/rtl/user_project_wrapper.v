@@ -1,53 +1,55 @@
+`timescale 1ns / 1ps
 `default_nettype none
-module user_project_wrapper #(
-    parameter BITS = 32
-) (
-`ifdef USE_POWER_PINS
-    inout vdda1, inout vdda2,
-    inout vssa1, inout vssa2,
-    inout vccd1, inout vccd2,
-    inout vssd1, inout vssd2,
-`endif
 
-    // Wishbone
-    input         wb_clk_i,
-    input         wb_rst_i,
-    input         wbs_stb_i,
-    input         wbs_cyc_i,
-    input         wbs_we_i,
-    input  [3:0]  wbs_sel_i,
-    input  [31:0] wbs_dat_i,
-    input  [31:0] wbs_adr_i,
-    output        wbs_ack_o,
-    output [31:0] wbs_dat_o,
+module user_project_wrapper #(
+    parameter int BITS = 32
+)(
+`ifdef USE_POWER_PINS
+    inout wire vdda1,
+    inout wire vdda2,   // agregado
+    inout wire vssa1,
+    inout wire vssa2,   // agregado
+    inout wire vccd1,
+    inout wire vccd2,   // agregado
+    inout wire vssd1,
+    inout wire vssd2,   // agregado
+`endif
+    // Wishbone Slave
+    input  wire        wb_clk_i,
+    input  wire        wb_rst_i,
+    input  wire        wbs_stb_i,
+    input  wire        wbs_cyc_i,
+    input  wire        wbs_we_i,
+    input  wire [31:0] wbs_adr_i,
+    input  wire [31:0] wbs_dat_i,
+    output wire [31:0] wbs_dat_o,
+    output wire        wbs_ack_o,
 
     // Logic Analyzer
-    input  [127:0] la_data_in,
-    output [127:0] la_data_out,
-    input  [127:0] la_oenb,
+    input  wire  [127:0] la_data_in,
+    output wire  [127:0] la_data_out,
+    input  wire  [127:0] la_oenb,
 
-    // Digital IOs
-    input  [`MPRJ_IO_PADS-1:0] io_in,
-    output [`MPRJ_IO_PADS-1:0] io_out,
-    output [`MPRJ_IO_PADS-1:0] io_oeb,
+    // GPIO
+    input  wire  [37:0] io_in,
+    output wire [37:0] io_out,
+    output wire [37:0] io_oeb,
 
-    // Analog IOs (analog_io[k] <-> GPIO pad k+7)
-    inout  [`MPRJ_IO_PADS-10:0] analog_io,
+    // Analog (no usado)
+    inout  wire [28:0] analog_io,
 
-    // Extra user clock
-    input   user_clock2,
+    // IRQ
+    output wire [2:0] user_irq,
 
-    // IRQs
-    output [2:0] user_irq
+    // Extra clocks / WB select
+    input  wire user_clock2,
+    input  wire [3:0] wbs_sel_i
 );
 
-    // -------------------------------------------------------------------------
-    // Wishbone Address Map and Arbitration
-    // -------------------------------------------------------------------------
     localparam [31:0] NEURO_BASE   = 32'h3000_0000;  // Neuromorphic module
     localparam [31:0] MATMUL_BASE  = 32'h3100_0000;  // Matrix multiplier
     localparam [31:0] MPRJ_MASK    = 32'hFFFF_F000;  // 4KB region mask
-
+		
     wire sel_neuro  = ((wbs_adr_i & MPRJ_MASK) == NEURO_BASE);
     wire sel_matmul = ((wbs_adr_i & MPRJ_MASK) == MATMUL_BASE);
 
@@ -62,13 +64,61 @@ module user_project_wrapper #(
     wire        wbs_ack_o_neuro,  wbs_ack_o_matmul;
     wire [31:0] wbs_dat_o_neuro,  wbs_dat_o_matmul;
 
-    // IRQ from matrix multiplier
-    wire irq_matmul;
+    //-----------------------------------
+    // Pines usados (sensores + RAM)
+    //-----------------------------------
+    wire [7:0] sensor_data_in  = io_in[7:0];
+    wire [7:0] re_ram_bus_in   = io_in[15:8];
+    wire [7:0] re_ram_bus_out;
+    wire [7:0] re_ram_oeb;
+    wire       done_logging;
+    wire       fail_safe;
+    wire       ack;
 
-    // -------------------------------------------------------------------------
-    // Neuromorphic Module Instance
-    // -------------------------------------------------------------------------
-    Neuromorphic_X1_wb neuro_inst (
+    assign io_oeb[7:0]   = 8'hFF;
+    assign io_oeb[15:8]  = re_ram_oeb;
+    assign io_oeb[37:16] = {22{1'b1}};
+
+    //assign io_out[7:0]   = 8'b0;
+    assign io_out[15:8]  = re_ram_bus_out;
+    assign io_out[37:16] = {22{1'b0}};
+
+    //-----------------------------------
+    // Controlador Wishbone para logging
+    //-----------------------------------
+    wire start_logging_signal;
+    logger_wb_controller logger_wb_inst (
+        .wb_clk_i(wb_clk_i),
+        .wb_rst_i(wb_rst_i),
+        .wbs_stb_i(wbs_stb_i_matmul),
+        .wbs_cyc_i(wbs_cyc_i_matmul),
+        .wbs_we_i(wbs_we_i),
+        .wbs_adr_i(wbs_adr_i[3:0]),
+        .wbs_dat_i(wbs_dat_i),
+        .wbs_dat_o(wbs_dat_o_matmul),
+        .wbs_ack_o(wbs_ack_o_matmul),
+        .start_logging(start_logging_signal)
+    );
+
+    //-----------------------------------
+    // Instancia principal del core
+    //-----------------------------------
+    secure_top secure_top_inst (
+        .clk(wb_clk_i),
+        .rst(wb_rst_i),
+        .start_logging(start_logging_signal),
+        .sensor_data(sensor_data_in),
+        .power_fail_detected(io_in[0]),
+        .re_ram_bus_in(re_ram_bus_in),
+        .re_ram_bus_out(re_ram_bus_out),
+        .re_ram_oeb(re_ram_oeb),
+        .done_logging(done_logging),
+        .fail_safe(fail_safe),
+        .ack(ack)
+
+    );
+
+Neuromorphic_X1_wb mprj (
 `ifdef USE_POWER_PINS
         .VDDC (vccd1),
         .VDDA (vdda1),
@@ -113,52 +163,29 @@ module user_project_wrapper #(
         .Vcc_Body      (analog_io[11])
     );
 
-    // -------------------------------------------------------------------------
-    // Matrix Multiplier Instance
-    // -------------------------------------------------------------------------
-    mat_mult_wb #(
-        .BASE_ADDR(MATMUL_BASE)  // Set to 0x31000000
-    ) matmul_inst (
-        // Wishbone interface (gated)
-        .wb_clk_i  (wb_clk_i),
-        .wb_rst_i  (wb_rst_i),
-        .wbs_stb_i (wbs_stb_i_matmul),
-        .wbs_cyc_i (wbs_cyc_i_matmul),
-        .wbs_we_i  (wbs_we_i),
-        .wbs_sel_i (wbs_sel_i),
-        .wbs_dat_i (wbs_dat_i),
-        .wbs_adr_i (wbs_adr_i),
-        .wbs_dat_o (wbs_dat_o_matmul),
-        .wbs_ack_o (wbs_ack_o_matmul),
+    //-----------------------------------
+    // Interrupciones de usuario
+    //-----------------------------------
+    assign user_irq = {fail_safe, done_logging, ack};
 
-        // Interrupt output
-        .irq_o     (irq_matmul)
-    );
+    //-----------------------------------
+    // LÃÂ³gica de LA
+    //-----------------------------------
+    assign la_data_out = 128'b0;
 
-    // -------------------------------------------------------------------------
-    // Wishbone Output Mux
-    // -------------------------------------------------------------------------
-    // Selected module drives the return bus
-    assign wbs_ack_o = (sel_neuro  ? wbs_ack_o_neuro  : 1'b0)
+    //-----------------------------------
+    // Pines no usados
+    //-----------------------------------
+    assign analog_io = 29'd0;
+		
+		assign wbs_ack_o = (sel_neuro  ? wbs_ack_o_neuro  : 1'b0)
                      | (sel_matmul ? wbs_ack_o_matmul : 1'b0);
 
     assign wbs_dat_o = sel_neuro  ? wbs_dat_o_neuro  :
                        sel_matmul ? wbs_dat_o_matmul :
                        32'h0000_0000;
 
-    // -------------------------------------------------------------------------
-    // IRQ and Unused Outputs
-    // -------------------------------------------------------------------------
-    // Connect matrix multiplier IRQ to user_irq[0]
-    assign user_irq = {2'b00, irq_matmul};
-
-    // Tie off unused outputs
-    assign la_data_out             = 128'b0;
-    assign io_oeb                  = {`MPRJ_IO_PADS{1'b1}};
-    assign io_out[`MPRJ_IO_PADS-1:1] = {(`MPRJ_IO_PADS-1){1'b0}};
-    // Note: io_out partially driven by neuro_inst.ScanOutCC
-
 endmodule
-`default_nettype wire
 
+`default_nettype wire
 
