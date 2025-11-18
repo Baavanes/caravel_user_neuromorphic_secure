@@ -28,13 +28,13 @@ This project implements a small matrix multiplication accelerator utilizing syst
 1. **Clone the Repository:**
 
 ```bash
-git clone https://github.com/Baavanes/caravel_user_neuromorphic_comp.git
+git clone https://github.com/Baavanes/caravel_user_neuromorphic_secure.git
 ```
 
 2. **Prepare Your Environment:**
 
 ```bash
-cd caravel_user_neuromorphic_comp
+cd caravel_user_neuromorphic_secure
 make setup
 ```
 
